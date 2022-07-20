@@ -1,0 +1,243 @@
+---
+title: "Uber Analysis 2021-2022 report"
+author: "Joy Omondi"
+date: '2022-06-09'
+output: html_document
+---
+
+This is a comprehensive report on the Uber 2021-2022 data analysis.
+
+### loading the necessary packages
+
+```{r, LoadingPackages, message=F, warning=FALSE, echo=FALSE}
+library(dplyr)
+library(readr)
+library(stats)
+library(chron)
+library(tidyverse)
+library(data.table)
+library(hrbrthemes)
+library(tidyr)
+library(viridis)
+library(ggpubr)
+library(psych)
+library(lubridate)
+library(ggrepel)
+library(forcats)
+library(scales)
+library(MASS)
+```
+
+#### Loading the 2021 data for first six months #The data was loaded differently because of difference in formating
+
+```{r, echo=FALSE}
+Jan2021 <- read.csv("Jan 2021.csv",skip = 5,header = TRUE)
+Feb2021 <- read.csv("Feb 2021.csv",skip = 5,header = TRUE)
+Mar2021 <- read.csv("Mar 2021.csv",skip = 5,header = TRUE)
+Apr2021 <- read.csv("Apr 2021.csv",skip = 5,header = TRUE)
+May2021 <- read.csv("May 2021.csv",skip = 5,header = TRUE)
+June2021 <- read.csv("Jun 2021.csv",skip = 5,header = TRUE)
+July2021 <- read.csv("Jul 2021.csv",skip = 5,header = TRUE)
+```
+
+#### Binding the loaded data
+
+```{r, echo=FALSE}
+MyUberData <-rbind(Feb2021,Mar2021,Apr2021,May2021,June2021,July2021)
+```
+
+#### reading in the remaining 2021 and 2022 data
+
+```{r, echo=FALSE}
+AugustApril <- 
+  read.csv("uber_AugApril22.csv",header = TRUE)%>%
+   mutate("Request Time" = strptime(Transaction.timestamp..UTC., format = "%m/%d/%Y %H:%M"),
+         "Date Requested" = as.IDate(`Request Time`),
+         DayofWeek = weekdays(`Date Requested`),
+         "Time Requested" = format(strptime(`Request.Time..Local.`,"%I:%M %p"), 
+                                   format = "%H:%M"),
+         Year = as.numeric(format(`Date Requested`, "%Y")),
+         Months = factor(months(as.Date(`Date Requested`)),
+                         levels = month.name),
+         Employee.Name = paste(First.name,Surname))%>%
+    dplyr::select(-c(1,3,4,7,8,9,10,11,16,20,21,24,25,26,29,30,31,32,33,34,35,36))%>%
+  rename(Total.Amount = Transaction.amount.in.KES..incl..taxes.)
+```
+
+#### data cleaning for the different datasets
+
+```{r, echo=FALSE}
+New.Data <- 
+  MyUberData[-c(1,3,4,7,8,9,10,11,16,20,21,24,25,26,29,30,31,32,33,34,35,36)]%>%
+  mutate("Request Time" = strptime(Transaction.timestamp..UTC., format = "%Y-%m-%d %H:%M"),
+         "Date Requested" = as.IDate(`Request Time`),
+        DayofWeek = weekdays(`Date Requested`),
+        Year = as.numeric(format(`Date Requested`, "%Y")),
+        Months = factor(months(as.Date(`Date Requested`)),
+                        levels = month.name),
+        Employee.Name = paste(First.name,Surname))%>%
+  rename(Total.Amount = Transaction.amount.in.KES..incl..taxes.)
+```
+
+```{r, echo=FALSE}
+Jan_DataCleaning <- 
+  (Jan2021[,-1])%>%#,AugustApril[,-1]
+    dplyr::select(-c(2,3,6,7,8,9,10,15,19,20,23,24,25,28,29,30,31,32,33,34,35))%>%
+    mutate("Request Time" = strptime(Transaction.timestamp..UTC., format = "%d/%m/%Y %H:%M"),
+           "Date Requested" = as.IDate(`Request Time`),
+           DayofWeek = weekdays(`Date Requested`),
+           Year = as.numeric(format(`Date Requested`, "%Y")),
+           Months = factor(months(as.Date(`Date Requested`)),
+                           levels = month.name),
+           Employee.Name = paste(First.name,Surname))%>%
+    rename(Total.Amount = Transaction.amount.in.KES..incl..taxes.)
+```
+
+#### combining the two datasets into one
+
+```{r, echo=FALSE}
+AnalysisData <- bind_rows(New.Data,AugustApril,Jan_DataCleaning)
+```
+
+##### Creating empty vectors for the columns we want to create for Payments and Transactions so that we able to see both the payments and transactions in one analysis
+
+```{r, echo= FALSE}
+Transaction = vector(length = 1341)
+Payments = vector(length = 1341)
+
+for (i in 1:NROW(AnalysisData$Total.Amount)) {
+  if(AnalysisData$Total.Amount[i] <= 0){
+    Payments[i] <- AnalysisData$Total.Amount[i]
+  }else{(AnalysisData$Total.Amount[i] >= 0)
+    Transaction[i] <-  AnalysisData$Total.Amount[i]
+  }
+}
+
+
+AnalysisData$Transaction <- Transaction
+AnalysisData$Payments <- Payments
+```
+
+## Analysis showing company expenditures (Transactions) and payments
+
+```{r, warning=FALSE}
+Analysis_Expense <- 
+  AnalysisData%>%
+    dplyr::select(Months,Year,Payments,Transaction)%>%
+    distinct(Months,Year,Payments,Transaction)%>%
+    group_by(Months,Year)%>%
+    summarise(TotalPayments = sum(Payments),
+              TotalTransaction = sum(Transaction))%>%
+    mutate(Difference = (TotalPayments +TotalTransaction))
+```
+
+#### Analysis of company monthly Expenditure
+
+```{r, echo=FALSE}
+MonthlyExpenses <- 
+  AnalysisData%>%
+    filter(Total.Amount >= 0)%>%
+    dplyr::select(Months,Total.Amount,Year,Transaction.type)%>%
+    distinct(Months,Total.Amount,Year,Transaction.type)%>%
+    group_by(Months,Year)%>%
+    summarise(MonthlyExpenditure = sum(Total.Amount))%>%
+    dplyr::select(Year,MonthlyExpenditure)
+```
+
+#### the general spending in the first four months of 2022 is more than that of 2021
+
+#### Visualization using a Histogram
+
+```{r}
+  ggplot(MonthlyExpenses,aes(fill = MonthlyExpenses,x = Months,y = MonthlyExpenditure))+
+  geom_histogram(position = "dodge",stat = "identity")+
+  facet_grid(.~Year)+
+  ggtitle("Monthly Expenditure")+
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+```
+
+```
+#### importing departmental data
+
+```{r,echo=FALSE}
+  Employee_Data <- read.csv("EmployeeNames.csv", header = TRUE)
+    AnalysisData$Employee.Name
+  
+    codes = Employee_Data$Employee.Name
+    Department <- vector(mode="character", length=nrow(AnalysisData))
+  
+    for (i in 1:nrow(AnalysisData)) {
+    idx = match(AnalysisData$Employee.Name[i], codes)
+    Department[i] <- Employee_Data$Department[idx]
+  }
+```
+
+#### Analysis by departments 
+
+```{r, echo=FALSE}
+DeptAnalysis <- 
+  cbind(AnalysisData,Department)%>%
+    #filter(Total.Amount >= 0)%>%
+    dplyr::select(Department,Transaction,Months,Year,Transaction.type)%>%
+    group_by(Department,Months,Year,Transaction.type)%>%
+    filter(Year == 2022)%>%
+    summarise(DeptTotals = sum(Transaction))
+  
+
+DeptAnalysis$Department[which(is.na(DeptAnalysis$Department))] <- "Service&Technology"
+```
+
+##Visualizing the Departments data
+
+```{r}
+ggplot(DeptAnalysis,aes(fill = Department,x = Department,y = DeptTotals))+
+  geom_histogram(position = "dodge",stat = "identity")+
+  facet_grid(.~Months)+
+  ggtitle("Monthly Expenditure")+
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+```
+
+##Analysis of frequency of order
+
+```{r}
+frequencyOfOrder <- 
+  AnalysisData%>%
+    filter(Total.Amount >= 0)%>%
+    dplyr::select(Months,Year,Transaction.type, Employee.Name)%>%
+    group_by(Months, Year)%>%
+    count()%>%
+    rename(freq = n)
+```
+
+#Visualizing the number of trips in each month
+
+```{r}
+  ggplot(frequencyOfOrder,aes(fill = Months,x = Months,y = freq))+
+    geom_histogram(position = "dodge",stat = "identity")+
+    facet_grid(.~Year)+
+    ggtitle("Monthly Expenditure")+
+    theme(axis.title.x=element_blank(),
+          axis.text.x=element_blank(),
+          axis.ticks.x=element_blank())
+```
+
+##There seems to be a decrease in the number of trips from the first quarter of 2021 compared to the first quarter of the 2022 despite the increase in amount spent.
+
+###Correlation between distance duration and amount paid
+
+```{r}
+  Correlation <-   
+    AnalysisData%>%
+      mutate(Distance = as.numeric(Distance..mi.),
+             Duration = as.numeric(Duration..mins.))%>%
+      filter(Year == "2022")%>%
+      dplyr::select(Duration,Distance,Total.Amount)%>%
+      na.omit()
+
+    
+cor(Correlation)
+```
